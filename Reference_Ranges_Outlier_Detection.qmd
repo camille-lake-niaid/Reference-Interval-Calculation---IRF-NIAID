@@ -1,0 +1,147 @@
+---
+title: "Reference Range Calculation: Outlier Detection"
+author: Camille Lake
+format:
+  pdf: default
+  html: default
+editor: visual
+df-print: kable
+execute:
+  echo: false
+  warning: false
+---
+
+```         
+```
+
+## Reference Range Calculation
+
+This project entails building reference ranges for the Study Data Browser.
+
+## Outlier Detection
+
+This document produces outliers, associated graphics, and identifying information for groups of analytes for the Reference Range Calculation project with the Integrated Research Facility.
+
+```{r}
+#| echo: false
+
+#load libraries
+library('dplyr')
+library('tidyr')
+library('MASS')
+library('car')
+library('referenceIntervals')
+library('outliers')
+library('ggplot2')
+library('purrr')
+library('DBI')
+library('odbc')
+library('openxlsx')
+library('magrittr')
+
+#establish connection, standardize data (backend team working to standardize but use this in the meantime)
+connection = dbConnect(odbc::odbc(), "database_server")
+data_measurement_dev = dbGetQuery(connection, "SELECT * from [Reference_Range_Baseline]")
+
+#pull in previous outliers that have already been reviewed, will use for joining with outliers identified with new run
+outliers_reviewed = dbGetQuery(connection, "SELECT * from [Outliers_Reviewed]")
+#convert review_date column to character (otherwise throws error)
+outliers_reviewed$review_date = as.character(outliers_reviewed$review_date)
+
+#drop rows associated with analytes not being analyzed 
+analytes_to_drop = c('PDW', 'BASO#', 'BASO%', 'EO#', 'EO%', 'NH3', 'URIC', 'HEM', 'ICT', 'LIP')
+data_measurement_dev = data_measurement_dev %>% 
+  filter(!analyte %in% analytes_to_drop)
+
+#create groupnames column and total counts
+data_measurement_dev = data_measurement_dev %>% 
+  group_by(analyte, assay, species_strain, sex, age_category) %>% 
+  mutate(group_name = paste(assay, analyte, species_strain, sex, age_category, sep = ' '), total_count=n()) %>% 
+  ungroup
+
+#ensure column order 
+col_order = c("analyte", "subject_name", "project_name", "age_category", "species_strain", "sex", "collection_date", "timepoint_day_number", "specimen_name", "units", "assay", "primate_country_of_origin", "result_value_number", "group_name", "total_count")
+data_measurement_dev = data_measurement_dev[, col_order]
+data_measurement_dev = data_measurement_dev[data_measurement_dev$total_count >=20,]
+
+
+#create test set: FOR PROTOTYPE ONLY
+#data_measurement_dev = subset(data_measurement_dev, species_strain == 'RHESUS' & sex == 'Male' & age_category == '3.2+', select = analyte & assay)
+
+```
+
+```{r}
+#establish main functions
+
+#intakes dataframe (dt) and result_value_number(var), creates column of whether datapoint is outlier after box-cox transformation, returns new dataframe with this information + box-cox transformed data z score
+transform_fcn = function(dt, var) {
+  var_name = eval(substitute(var),eval(dt))
+  model_norm = lm(var_name~1)
+  bc_car = powerTransform(model_norm, family = 'bcnPower')
+  dt$bc_car_transform = bcnPower(var_name, lambda = bc_car$lambda, gamma = 0)
+  dt_trans = dplyr::mutate(dt, transformed_outlier = ifelse((bc_car_transform %in% boxplot.stats(dt$bc_car_transform)$out), 'yes', 'no'))
+  dt_trans = dt_trans %>% group_by(group_name) %>% mutate(zscore_BC = (bc_car_transform - mean(bc_car_transform))/sd(bc_car_transform))
+  return(dt_trans)
+}
+
+#intakes dataframe(dt - output of transform_fcn) and result_value_number(var), returns box and whisker of raw data, box and whisker of box-cox transformed data, histogram of raw data for comparison, and summary statistics dataframe. NOTE: for statistical calculations, NA values are removed prior to calculation. 
+outliers_plot = function(dt, var) {
+  var_name = eval(substitute(var),eval(dt))
+  group_name = unique(dt$group_name)
+  par(mfrow=c(1, 3), oma=c(0,0,3,0))
+  boxplot(var_name, main='Raw Data', horizontal = TRUE)
+  boxplot(dt$bc_car_transform, main='Box-Cox Transform', horizontal = TRUE, outcol='red')
+  hist(var_name, main="Raw Data", xlab=NA, ylab=NA)
+  mtext(group_name, side = 3, line = 0, outer = TRUE) 
+  outlier = boxplot.stats(dt$bc_car_transform)$out
+  min = min(var_name, na.rm = T) %>% signif(., 3)
+  max = max(var_name, na.rm = T) %>% signif(., 3)
+  mean = mean(var_name, na.rm = T) %>% signif(., 3)
+  sd = sd(var_name, na.rm = T) %>% signif(., 3)
+  num_outliers = length(outlier)
+  df_stats = data.frame(unique(dt$analyte), min, max, mean, sd, num_outliers, nrow(dt))
+  colnames(df_stats) = c('analyte', 'min', 'max', 'mean', 'sd', 'num outliers', 'total_count')
+  return(df_stats)
+}
+
+#intakes dataframe(dt - output of transform_fcn) and outputs outliers (individual data points) for review
+outliers_df = function(dt) {
+  df_outlier = dt[dt$transformed_outlier == 'yes',]
+  cols_to_drop = c('bc_car_transform', 'transformed_outlier')
+  df_outlier = df_outlier[, !(names(df_outlier) %in% cols_to_drop)]
+  df_outlier = df_outlier %>% relocate(analyte)
+  extra_cols = c('remove_YN', 'rationale_comments', 'remove_level', 'reviewer', 'review_date')
+  df_outlier[, extra_cols] = ''
+  return(df_outlier)
+}
+
+```
+
+```{r}
+#| code-overflow: scroll
+#run test subset through outliers plots
+data_measurement_dev = data_measurement_dev %>% 
+  group_by(group_name) %>% 
+  do((transform_fcn(., result_value_number)))
+data_measurement_dev %>% 
+  group_by(group_name) %>% 
+  do((outliers_plot(., result_value_number))) 
+```
+
+```{r}
+
+#create dataframe of outliers from BC transformed data
+new_outliers = data_measurement_dev %>% 
+  group_by(group_name) %>% 
+  do(data.frame(outliers_df(.))) 
+
+#join with outliers already reviewed
+combined_outliers = rbind(outliers_reviewed, new_outliers)
+combined_outliers_final = distinct(combined_outliers, analyte, subject_name, project_name, age_category, species_strain, sex, collection_date, timepoint_day_number, specimen_name, units, assay, primate_country_of_origin, result_value_number, .keep_all = TRUE)
+
+#write output to excel
+write.xlsx(combined_outliers_final, "PROD_Outlier_Detection_Excel.xlsx", rowNames = FALSE)
+```
+
+```         
+```
