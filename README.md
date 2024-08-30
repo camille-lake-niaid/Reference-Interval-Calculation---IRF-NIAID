@@ -12,6 +12,7 @@ Below is the general data flow and statistical calculations associated with the 
 Files found in this repository:
 1. Reference Ranges Outlier Detection: This quarto markdown document produces outliers, associated graphics, and identifying information for groups of analytes for the Reference Range Calculation project with the Integrated Research Facility.
 2. Reference Ranges Statistical Outcomes: This R script intakes data and outputs reference ranges per group. Two separate excel files are produced: (1) Data Entry Component data frame - for inputting the reference ranges into the Study Data Browser using the custom-built data entry component, and (2) Comprehensive data frame - include additional information requested by the customers like confidence intervals around the reference ranges and summary statistics for groups where reference range calculation is not appropriate.
+3. Rule and Statistical Logic: This excel file documents the specific rule-based and statistical logic used in this project to handle specific scenarios encountered over the course of development. 
 
 A comprehensive set of reference ranges and summary statistics can be found in the supplemental material of the manuscript, here: []. 
 
