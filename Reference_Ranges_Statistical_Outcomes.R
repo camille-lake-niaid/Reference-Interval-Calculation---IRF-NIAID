@@ -1,19 +1,19 @@
-#this script intakes data and generally outputs reference ranges per group
+#This script intakes a raw data frame and outputs reference ranges and summary statistics per signalment group, where appropriate
 #output excel file 1: Data Entry Component data frame - for inputting the reference ranges into the Study Data Browser using the custom-built data entry component 
 #output excel file 2: Comprehensive data frame - include additional information requested by the customers like confidence intervals around the reference ranges and summary statistics for groups where reference range calculation is not appropriate
 
-#load libraries
+#_____________LOAD LIBRARIES_____________________________
+
 load.lib = c('dplyr', 'tidyr', 'MASS', 'car', 'referenceIntervals', 'outliers', 'ggplot2', 'purrr', 'DBI', 'odbc', 'openxlsx', 'magrittr')
 install.lib = load.lib[!load.lib %in% installed.packages()]
 for(lib in install.lib) install.packages(lib,dependencies=TRUE)
 sapply(load.lib,require,character=TRUE)
 
+#_____________ESTABLISH CONNECTION AND CLEAN DATA__________
+
 #establish connection with database and clean data (process to clean is also happening on the backend but use this for now)
 connection = dbConnect(odbc::odbc(), "database_server")
 data_measurement_dev = dbGetQuery(connection, "SELECT * from [Reference_Range_Baseline]")
-
-#create test set: FOR PROTOTYPE ONLY
-#data_measurement_dev = subset(data_measurement_dev, species_strain == 'RHESUS' & sex == 'Male' & age_category == '3.2+', select = analyte & assay)
 
 #clean NAs to standardize with what is in SQL, replace non-standardized primate countries of origin
 data_measurement_dev$primate_country_of_origin = data_measurement_dev$primate_country_of_origin %>% 
@@ -93,6 +93,8 @@ cols_to_drop = c('distinct_count', 'max_count', 'relative_prop')
 total_non_distinct_dom = total_non_distinct_dom[, !(names(total_non_distinct_dom) %in% cols_to_drop)]
 summary_stats_all = rbind(total_non_distinct_dom, data_dev_zero, below_20)
 
+#______________RUN SUMMARY STATISTICS_____________________
+
 #create summary statistics function
 summary_stats = function(df) {
   df$mean_stats = mean(df$result_value_number)
@@ -115,7 +117,7 @@ summary_stats_all = rbind(summary_stats_above_20_clean, summary_stats_combined)
 #set up list 
 test_subset_list = split(above_20_clean$result_value_number, above_20_clean$group_name)
 
-#______________Statistical Pipeline with appropriate groups__________________________
+#______________RUN STATISTICAL PIPELINE WITH APPROPRIATE GROUPS__________________________
 
 #build functions
 
@@ -150,8 +152,10 @@ for (item in names(test_subset_list)) {
 }
 
 #set up function to calculate RRs on df_stats with conditional statements
-#NOTE: we are using dixon's outliers but not using this - this does not trigger a BC transformation of the data which will FAIL if the bc-transformed data is negative
+#NOTE: we put in Dixon's outliers for the outliers parameter but do not use them for anything, as outliers have been review prior to the running of this script - not inputting something for the outliers using this package fails on the BC transformation
 
+#Requirements for function 1: Raw data is normally distributed, sample size >= 120
+#Outcome: reference intervals calculated using raw data with parametric parameters, confidence intervals calculated using raw data with parametric parameters
 BC_function_1 = function(dt, var) {
   var_name = eval(substitute(var),eval(dt))
   ref_lim = refLimit(var_name, out.method = "cook", out.rm = FALSE, RI = "p", CI = "p", refConf = 0.95, limitConf = 0.90)
@@ -161,6 +165,8 @@ BC_function_1 = function(dt, var) {
   return(RI_calc)
 }
 
+#Requirements for function 2: Raw data is not normally distributed, sample size >= 120
+#Outcome: reference intervals calculated using Box Cox transformed data and nonparametric parameters, confidence intervals calculated using Box Cox transformed data and nonparametric parameters
 BC_function_2 = function(dt, var) {
   var_name = eval(substitute(var),eval(dt))
   model_norm = lm(var_name~1)
@@ -174,6 +180,8 @@ BC_function_2 = function(dt, var) {
   return(RI_calc_bt)
 }
 
+#Requirements for function 3: Raw data is not normally distributed, 20 <= sample size <= 120, Box Cox transformed data is normally distributed
+#Outcome: reference intervals calculated using Box Cox transformed data and robust parameters, confidence intervals calculated using Box Cox transformed data and bootstrap percentile method
 BC_function_3 = function(dt, var) {
   var_name = eval(substitute(var),eval(dt))
   model_norm = lm(var_name~1)
@@ -187,6 +195,8 @@ BC_function_3 = function(dt, var) {
   return(RI_calc_bt)
 }
 
+#Requirements for function 4: Raw data is not normally distributed, 20 <= sample size <= 120, Box Cox transformed data is not normally distributed
+#Outcome: reference intervals calculated using raw data and robust parameters, confidence intervals calculated using raw data and bootstrap percentile method
 BC_function_4 = function(dt, var) {
   var_name = eval(substitute(var),eval(dt))
   ref_lim = refLimit(var_name, out.method = "cook", out.rm = FALSE, RI = "r", CI = "boot", refConf = 0.95, limitConf = 0.90, bootStat = "perc")
@@ -195,6 +205,8 @@ BC_function_4 = function(dt, var) {
   RI_calc = cbind(ref_int, conf_int)
   return(RI_calc)
 }
+
+#note that as per above, if sample size < 20 reference ranges are not calculated (only summary statistics are calculated)
 
 #create column in df_stats that says which outcome the data needs to be piped through
 df_stats_col = df_stats %>% mutate(stats_direction = case_when(likelihood_ratio >= 0.05 ~ 'fcn_1',
