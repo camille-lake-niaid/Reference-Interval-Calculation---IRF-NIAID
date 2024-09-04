@@ -22,6 +22,8 @@ This project entails building reference ranges for the Study Data Browser.
 
 This document produces outliers, associated graphics, and identifying information for groups of analytes for the Reference Range Calculation project with the Integrated Research Facility.
 
+The overall process consists of a backend database holding all raw data getting pulled into this script, where groups of data based on signalment partitioning criteria (please see reference diagram in readme) are assessed for outliers statistically. The outliers are defined as points outside of the interquartile range following Box Cox transformation. This document provides information about the outliers per group as well in the form of statistical insights as well as visualizations to provide a holistic aid for the veterinary pathologists making the determinations regarding data point removal. Following review the data is returned back to the database for full integration and record keeping on which points should be removed for reference range calculation. This process is iterative in nature, with the process occuring at appropriate time intervals based on the ingestion of new data points due to new studies being down at the facility. 
+
 ```{r}
 #| echo: false
 
@@ -64,16 +66,12 @@ col_order = c("analyte", "subject_name", "project_name", "age_category", "specie
 data_measurement_dev = data_measurement_dev[, col_order]
 data_measurement_dev = data_measurement_dev[data_measurement_dev$total_count >=20,]
 
-
-#create test set: FOR PROTOTYPE ONLY
-#data_measurement_dev = subset(data_measurement_dev, species_strain == 'RHESUS' & sex == 'Male' & age_category == '3.2+', select = analyte & assay)
-
 ```
 
 ```{r}
 #establish main functions
 
-#intakes dataframe (dt) and result_value_number(var), creates column of whether datapoint is outlier after box-cox transformation, returns new dataframe with this information + box-cox transformed data z score
+#intakes dataframe (dt) and result_value_number(var), creates column of whether datapoint is outlier after box-cox transformation, returns new dataframe with this information + box-cox transformed data z-score
 transform_fcn = function(dt, var) {
   var_name = eval(substitute(var),eval(dt))
   model_norm = lm(var_name~1)
@@ -119,7 +117,7 @@ outliers_df = function(dt) {
 
 ```{r}
 #| code-overflow: scroll
-#run test subset through outliers plots
+#run data through outliers plots
 data_measurement_dev = data_measurement_dev %>% 
   group_by(group_name) %>% 
   do((transform_fcn(., result_value_number)))
