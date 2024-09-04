@@ -154,7 +154,7 @@ for (item in names(test_subset_list)) {
 #set up function to calculate RRs on df_stats with conditional statements
 #NOTE: we put in Dixon's outliers for the outliers parameter but do not use them for anything, as outliers have been review prior to the running of this script - not inputting something for the outliers using this package fails on the BC transformation
 
-#Requirements for function 1: Raw data is normally distributed, sample size >= 120
+#Requirements for function 1: Raw data is normally distributed
 #Outcome: reference intervals calculated using raw data with parametric parameters, confidence intervals calculated using raw data with parametric parameters
 BC_function_1 = function(dt, var) {
   var_name = eval(substitute(var),eval(dt))
@@ -180,7 +180,7 @@ BC_function_2 = function(dt, var) {
   return(RI_calc_bt)
 }
 
-#Requirements for function 3: Raw data is not normally distributed, 20 <= sample size <= 120, Box Cox transformed data is normally distributed
+#Requirements for function 3: Raw data is not normally distributed, 20 <= sample size < 120, Box Cox transformed data is normally distributed
 #Outcome: reference intervals calculated using Box Cox transformed data and robust parameters, confidence intervals calculated using Box Cox transformed data and bootstrap percentile method
 BC_function_3 = function(dt, var) {
   var_name = eval(substitute(var),eval(dt))
@@ -195,7 +195,7 @@ BC_function_3 = function(dt, var) {
   return(RI_calc_bt)
 }
 
-#Requirements for function 4: Raw data is not normally distributed, 20 <= sample size <= 120, Box Cox transformed data is not normally distributed
+#Requirements for function 4: Raw data is not normally distributed, 20 <= sample size < 120, Box Cox transformed data is not normally distributed
 #Outcome: reference intervals calculated using raw data and robust parameters, confidence intervals calculated using raw data and bootstrap percentile method
 BC_function_4 = function(dt, var) {
   var_name = eval(substitute(var),eval(dt))
@@ -261,13 +261,13 @@ fcn_4_statistical_outcomes = if (nrow(fcn_4) > 0) {
   fcn_4_statistical_outcomes = setNames(data.frame(matrix(ncol = 7, nrow = 1)), col_names_stats)
 }
 
-#put all statistical outputs together in masterdataframe; remove any NA rows
+#put all statistical outputs together in master dataframe; remove any NA rows
 master_statistical_outputs = rbind(fcn_1_statistical_outcomes, fcn_2_statistical_outcomes, fcn_3_statistical_outcomes, fcn_4_statistical_outcomes) %>% 
   filter_all(any_vars(!is.na(.)))
 
-#_____________________create final outcome dataframes: data_entry_component_master dataframe and comprehensive dataframe for vetinarians____________________
+#_____________________CREATE FINAL DATA FRAME OUTPUTS____________________
 
-#per Dan and Jeremy, if the lower lim is less than 0, set to 0, if the upper limit is a percentage and is above 100, set to 100, and if either of those are removed, take out the CIs
+#if the lower lim is less than 0, set to 0, if the upper limit is a percentage and is above 100, set to 100, and if either of those are changed, take out the CIs
 merged_stats_above_20_clean = merge(above_20_clean, master_statistical_outputs, by='group_name')
 #change the reference ranges
 merged_stats_above_20_clean$`Range Low`[merged_stats_above_20_clean$`Range Low`<0] = 0
